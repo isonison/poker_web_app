@@ -1,4 +1,5 @@
 import streamlit as st
+import sqlite3 
 
 def calculate_total_points(chip_counts, chip_values):
     return sum(count * value for count, value in zip(chip_counts, chip_values))
