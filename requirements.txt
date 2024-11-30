@@ -2,4 +2,4 @@ streamlit==1.19.0
 altair>=5.0.0
 pandas
 matplotlib
-sqlite3
+
