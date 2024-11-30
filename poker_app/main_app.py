@@ -3,6 +3,49 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import sqlite3
 
+# SQLite データベースの初期化
+# SQLite データベースの初期化
+def init_db():
+    conn = sqlite3.connect("poker_tool.db")
+    c = conn.cursor()
+
+    # ユーザーテーブル作成
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS Users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 戦績テーブル作成（game_idカラムを追加）
+    # 戦績テーブル作成（game_idカラムを追加）
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS Records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        game_id INTEGER NOT NULL,  -- game_idカラムを追加
+        date DATE NOT NULL,
+        result REAL NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES Users(id),
+        FOREIGN KEY (game_id) REFERENCES game(game_id)
+    )
+""")
+
+
+    # ゲームテーブル作成
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS game (
+            game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date DATE NOT NULL,
+            rate REAL NOT NULL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
 # SQLite データベースの操作関数
 def fetch_query(query, params=()):
     conn = sqlite3.connect("poker_tool.db")
@@ -51,10 +94,10 @@ if users:
                 user_data = df_grouped[df_grouped["ユーザー"] == user]
                 ax.plot(user_data["日付"], user_data["収支"], marker='o', linestyle='-', label=user)
 
-            ax.set_title("全プレイヤーの収支比較（横軸: 日付）", fontsize=16)
-            ax.set_xlabel("日付", fontsize=12)
-            ax.set_ylabel("収支", fontsize=12)
-            ax.legend(title="ユーザー")
+            ax.set_title("ALL USER RESULTS(BY: DATE)", fontsize=16)
+            ax.set_xlabel("DATE", fontsize=12)
+            ax.set_ylabel("RESULTS", fontsize=12)
+            ax.legend(title="USER")
             plt.grid()
             plt.xticks(rotation=45)
             st.pyplot(fig)
@@ -80,10 +123,10 @@ if users:
                 user_data = df_grouped[df_grouped["ユーザー"] == user]
                 ax.plot(user_data["ゲームID"], user_data["収支"], marker='o', linestyle='-', label=user)
 
-            ax.set_title("全プレイヤーの収支比較（横軸: ゲームID）", fontsize=16)
-            ax.set_xlabel("ゲームID", fontsize=12)
-            ax.set_ylabel("収支", fontsize=12)
-            ax.legend(title="ユーザー")
+            ax.set_title("ALL USER RESULTS(BY: GAME ID)", fontsize=16)
+            ax.set_xlabel("GAME ID", fontsize=12)
+            ax.set_ylabel("RESULTS", fontsize=12)
+            ax.legend(title="USER")
             plt.grid()
             st.pyplot(fig)
 
