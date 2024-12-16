@@ -1,59 +1,52 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
-import sqlite3
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-# SQLite データベースの初期化
-# SQLite データベースの初期化
-def init_db():
-    conn = sqlite3.connect("poker_tool.db")
-    c = conn.cursor()
+# Firebase認証情報のロード
+cred = credentials.Certificate({
+    "type": st.secrets["firebase"]["type"],
+    "project_id": st.secrets["firebase"]["project_id"],
+    "private_key_id": st.secrets["firebase"]["private_key_id"],
+    "private_key": st.secrets["firebase"]["private_key"],
+    "client_email": st.secrets["firebase"]["client_email"],
+    "client_id": st.secrets["firebase"]["client_id"],
+    "auth_uri": st.secrets["firebase"]["auth_uri"],
+    "token_uri": st.secrets["firebase"]["token_uri"],
+    "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
+    "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"],
+    "universe_domain": st.secrets["firebase"]["universe_domain"]
+})
 
-    # ユーザーテーブル作成
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS Users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+# Firebase Admin SDKの初期化
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 
-    # 戦績テーブル作成（game_idカラムを追加）
-    # 戦績テーブル作成（game_idカラムを追加）
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS Records (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        game_id INTEGER NOT NULL,  -- game_idカラムを追加
-        date DATE NOT NULL,
-        result REAL NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES Users(id),
-        FOREIGN KEY (game_id) REFERENCES game(game_id)
-    )
-""")
+# Firestoreのインスタンスを取得
+db = firestore.client()
 
+# Firestoreにデータを挿入
+def add_user(name):
+    doc_ref = db.collection('Users').add({
+        'name': name,
+        'created_at': firestore.SERVER_TIMESTAMP
+    })
 
-    # ゲームテーブル作成
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS game (
-            game_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date DATE NOT NULL,
-            rate REAL NOT NULL
-        )
-    """)
+def add_record(user_id, game_id, date, result):
+    db.collection('Records').add({
+        'user_id': user_id,
+        'game_id': game_id,
+        'date': date,
+        'result': result,
+        'created_at': firestore.SERVER_TIMESTAMP
+    })
 
-    conn.commit()
-    conn.close()
-
-# SQLite データベースの操作関数
-def fetch_query(query, params=()):
-    conn = sqlite3.connect("poker_tool.db")
-    c = conn.cursor()
-    c.execute(query, params)
-    results = c.fetchall()
-    conn.close()
-    return results
+def add_game(date, rate):
+    db.collection('game').add({
+        'date': date,
+        'rate': rate
+    })
 
 # Streamlitアプリ
 st.title("全プレイヤー収支比較")
@@ -61,15 +54,17 @@ st.title("全プレイヤー収支比較")
 # 横軸の選択
 axis_option = st.radio("横軸を選択してください", ("日付", "ゲームID"))
 
-# ユーザー選択
-users = fetch_query("SELECT id, name FROM Users")
+# Firestoreからユーザーを取得
+users_ref = db.collection("Users")
+users = users_ref.stream()
+
 if users:
     all_records = []
     for user in users:
-        records = fetch_query("SELECT date, result, game_id FROM Records WHERE user_id = ?", (user[0],))
-        if records:
-            for record in records:
-                all_records.append((user[1], record[0], record[1], record[2]))  # user name, date, result, game_id
+        records_ref = db.collection("Records").where("user_id", "==", user.id)
+        records = records_ref.stream()
+        for record in records:
+            all_records.append((user.to_dict()['name'], record.to_dict()['date'], record.to_dict()['result'], record.to_dict()['game_id']))
 
     if all_records:
         # データをDataFrameに変換
