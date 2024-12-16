@@ -1,25 +1,35 @@
 import streamlit as st
-import sqlite3
+import firebase_admin
+from firebase_admin import credentials, firestore
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# データベース操作用の関数
-def execute_query(query, params=()):
-    conn = sqlite3.connect("poker_tool.db")
-    c = conn.cursor()
-    c.execute(query, params)
-    conn.commit()
-    conn.close()
+# Firebase認証情報のロード
+cred = credentials.Certificate({
+    "type": st.secrets["type"],
+    "project_id": st.secrets["project_id"],
+    "private_key_id": st.secrets["private_key_id"],
+    "private_key": st.secrets["private_key"],
+    "client_email": st.secrets["client_email"],
+    "client_id": st.secrets["client_id"],
+    "auth_uri": st.secrets["auth_uri"],
+    "token_uri": st.secrets["token_uri"],
+    "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
+    "client_x509_cert_url": st.secrets["client_x509_cert_url"],
+    "universe_domain": st.secrets["universe_domain"]
+})
 
-def fetch_query(query, params=()):
-    conn = sqlite3.connect("poker_tool.db")
-    c = conn.cursor()
-    c.execute(query, params)
-    results = c.fetchall()
-    conn.close()
-    return results
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 
+# Firestore操作用の関数
+def execute_query(collection, data):
+    db.collection(collection).add(data)
+
+def fetch_query(collection):
+    docs = db.collection(collection).stream()
+    return [doc.to_dict() for doc in docs]
 
 # Streamlitアプリ
 st.title("ポーカーツール: ユーザー戦績管理")
@@ -32,13 +42,14 @@ with tab1:
     st.header("戦績を登録する")
     
     # ユーザー選択
-    user_options = fetch_query("SELECT id, name FROM Users")
+    user_options = fetch_query("Users")
     if user_options:
-        selected_user = st.selectbox("ユーザーを選択してください", user_options, format_func=lambda x: x[1], key="user_selectbox")
+        user_names = [(user["id"], user["name"]) for user in user_options]
+        selected_user = st.selectbox("ユーザーを選択してください", user_names, format_func=lambda x: x[1], key="user_selectbox")
         
         # ゲーム選択
-        games = fetch_query("SELECT game_id, date FROM game")
-        game_options = [(game[0], game[1]) for game in games]
+        games = fetch_query("Games")
+        game_options = [(game["game_id"], game["date"]) for game in games]
         
         if game_options:
             selected_game = st.selectbox("ゲームを選択してください", game_options, format_func=lambda x: f"ゲームID: {x[0]} - 日付: {x[1]}", key="game_selectbox")
@@ -49,8 +60,13 @@ with tab1:
             
             # 戦績登録
             if st.button("戦績を登録する"):
-                execute_query("INSERT INTO Records (user_id, game_id, date, result) VALUES (?, ?, ?, ?)",
-                            (selected_user[0], selected_game[0], date, result))
+                record = {
+                    "user_id": selected_user[0],
+                    "game_id": selected_game[0],
+                    "date": date,
+                    "result": result
+                }
+                execute_query("Records", record)
                 st.success(f"戦績を登録しました: ユーザー: {selected_user[1]}, ゲームID: {selected_game[0]}, 日付: {date}, 収支: {result}")
 
         else:
@@ -66,29 +82,31 @@ with tab2:
     axis_option = st.radio("横軸を選択してください", ("日付", "ゲームID"))
 
     # ユーザー選択
-    user_options = fetch_query("SELECT id, name FROM Users")
+    user_options = fetch_query("Users")
     if user_options:
-        selected_user = st.selectbox("ユーザーを選択してください", user_options, format_func=lambda x: x[1], key="user_select_for_graph")
-        records = fetch_query("SELECT id, date, result, game_id FROM Records WHERE user_id = ?", (selected_user[0],))
+        user_names = [(user["id"], user["name"]) for user in user_options]
+        selected_user = st.selectbox("ユーザーを選択してください", user_names, format_func=lambda x: x[1], key="user_select_for_graph")
+        records = fetch_query("Records")
+        user_records = [record for record in records if record["user_id"] == selected_user[0]]
 
-        if records:
+        if user_records:
             # データをDataFrameに変換
-            df = pd.DataFrame(records, columns=["ID", "日付", "収支", "ゲームID"])
-            df["日付"] = pd.to_datetime(df["日付"])  # 日付をDatetime型に変換
+            df = pd.DataFrame(user_records)
+            df["日付"] = pd.to_datetime(df["date"])  # 日付をDatetime型に変換
             df = df.sort_values(["日付"])  # 日付順に並び替え
 
             # 横軸が「日付」の場合
             if axis_option == "日付":
                 # 同じ日の収支を合計
-                df_grouped = df.groupby(["日付"]).agg({"収支": "sum"}).reset_index()
+                df_grouped = df.groupby(["日付"]).agg({"result": "sum"}).reset_index()
 
                 # トータル収支を計算
-                total_profit = df_grouped["収支"].sum()
+                total_profit = df_grouped["result"].sum()
 
                 # グラフ表示
                 st.subheader(f"{selected_user[1]} の収支合計（横軸: 日付）")
                 fig, ax = plt.subplots(figsize=(10, 5))
-                ax.plot(df_grouped["日付"], df_grouped["収支"], marker='o', color="skyblue", linestyle='-', label="収支")
+                ax.plot(df_grouped["日付"], df_grouped["result"], marker='o', color="skyblue", linestyle='-', label="収支")
                 ax.set_title(f"{selected_user[1]} Total Results(By:Date)", fontsize=16)
                 ax.set_xlabel("Date", fontsize=12)
                 ax.set_ylabel("Income", fontsize=12)
@@ -103,15 +121,15 @@ with tab2:
             # 横軸が「ゲームID」の場合
             elif axis_option == "ゲームID":
                 # ゲームごとの収支
-                df_grouped = df.groupby(["ゲームID"]).agg({"収支": "sum"}).reset_index()
+                df_grouped = df.groupby(["game_id"]).agg({"result": "sum"}).reset_index()
 
                 # トータル収支を計算
-                total_profit = df_grouped["収支"].sum()
+                total_profit = df_grouped["result"].sum()
 
                 # グラフ表示
                 st.subheader(f"{selected_user[1]} の収支合計（横軸: ゲームID）")
                 fig, ax = plt.subplots(figsize=(10, 5))
-                ax.plot(df_grouped["ゲームID"], df_grouped["収支"], marker='o', color="skyblue", linestyle='-', label="収支")
+                ax.plot(df_grouped["game_id"], df_grouped["result"], marker='o', color="skyblue", linestyle='-', label="収支")
                 ax.set_title(f"{selected_user[1]} Total Results(By:GameID)", fontsize=16)
                 ax.set_xlabel("ゲームID", fontsize=12)
                 ax.set_ylabel("収支", fontsize=12)
