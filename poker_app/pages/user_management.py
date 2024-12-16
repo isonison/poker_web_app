@@ -17,7 +17,10 @@ cred = credentials.Certificate({
     "universe_domain": st.secrets["universe_domain"]
 })
 
-firebase_admin.initialize_app(cred)
+
+# Firebase Admin SDKの初期化
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 # Firestore操作用関数
@@ -87,7 +90,7 @@ if user_options:
     st.subheader("ユーザー名の編集")
     new_name = st.text_input("新しいユーザー名", value=selected_user[1]['name'])
     if st.button("ユーザー名を更新"):
-        update_user_name(selected_user[0], new_name)
+        update_user_name(selected_user[0], new_name)  # Use selected_user[0] to get the user ID
         st.success(f"{selected_user[1]['name']} の名前が {new_name} に変更されました。")
     
     # 削除ボタン
@@ -98,7 +101,8 @@ if user_options:
     )
     
     if delete_confirm == "はい" and st.button(f"{selected_user[1]['name']} を削除"):
-        delete_user(selected_user[0])
+        delete_user(selected_user[0])  # Use selected_user[0] to get the user ID
         st.success(f"{selected_user[1]['name']} を削除しました。")
 else:
     st.error("ユーザーが登録されていません。")
+

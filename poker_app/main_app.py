@@ -26,28 +26,53 @@ if not firebase_admin._apps:
 # Firestoreのインスタンスを取得
 db = firestore.client()
 
-# Firestoreにデータを挿入
+# Counters Collection to keep track of IDs
+def get_next_id(collection_name):
+    counter_ref = db.collection('Counters').document(collection_name)
+    counter_doc = counter_ref.get()
+
+    if counter_doc.exists:
+        current_value = counter_doc.to_dict()['current']
+        next_value = current_value + 1
+        counter_ref.update({'current': next_value})
+    else:
+        next_value = 1
+        counter_ref.set({'current': next_value})
+
+    return next_value
+
+# ユーザーの追加
 def add_user(name):
-    doc_ref = db.collection('Users').add({
+    user_id = get_next_id('Users')  # Get next user ID
+    doc_ref = db.collection('Users').document(str(user_id))
+    doc_ref.set({
         'name': name,
         'created_at': firestore.SERVER_TIMESTAMP
     })
+    return user_id
 
+# ゲームの追加
+def add_game(date, rate):
+    game_id = get_next_id('Games')  # Get next game ID
+    doc_ref = db.collection('Games').document(str(game_id))
+    doc_ref.set({
+        'date': date,
+        'rate': rate
+    })
+    return game_id
+
+# 戦績の追加
 def add_record(user_id, game_id, date, result):
+    user_ref = db.collection('Users').document(str(user_id))
+    game_ref = db.collection('Games').document(str(game_id))
+    
     db.collection('Records').add({
-        'user_id': user_id,
-        'game_id': game_id,
+        'user_id': user_ref,  # user reference
+        'game_id': game_ref,  # game reference
         'date': date,
         'result': result,
         'created_at': firestore.SERVER_TIMESTAMP
     })
-
-def add_game(date, rate):
-    db.collection('game').add({
-        'date': date,
-        'rate': rate
-    })
-
 # Streamlitアプリ
 st.title("全プレイヤー収支比較")
 
